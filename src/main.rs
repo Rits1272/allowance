@@ -18,7 +18,7 @@ mod wallet;
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
@@ -29,8 +29,43 @@ fn env(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
-async fn mcp_post(State(guard): State<Arc<guard::Guard>>, Json(msg): Json<Value>) -> Response {
-    match mcp::handle(&guard, msg).await {
+struct App {
+    guard: guard::Guard,
+    /// When set, every request must carry `Authorization: Bearer <token>`.
+    token: Option<String>,
+}
+
+/// Compares in time that doesn't depend on where the strings differ.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
+}
+
+fn authorized(app: &App, headers: &HeaderMap) -> bool {
+    let Some(token) = &app.token else { return true };
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .is_some_and(|got| same(got, token))
+}
+
+async fn mcp_post(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(msg): Json<Value>,
+) -> Response {
+    if !authorized(&app, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "allowance: missing or wrong bearer token\n",
+        )
+            .into_response();
+    }
+    match mcp::handle(&app.guard, msg).await {
         Some(reply) => Json(reply).into_response(),
         // A notification: accepted, nothing to say.
         None => StatusCode::ACCEPTED.into_response(),
@@ -46,27 +81,45 @@ async fn daemon() -> Result<(), String> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
-    let guard = Arc::new(guard::Guard {
+    let guard = guard::Guard {
         policy,
         ledger: tokio::sync::Mutex::new(ledger),
         wallet: Box::new(wallet),
         http,
-    });
+    };
     // Loopback by default: the daemon is for agents on this machine.
     let listen = env("ALLOWANCE_LISTEN", "127.0.0.1:4020");
-    let app = Router::new()
-        .route("/mcp", post(mcp_post))
-        .with_state(guard.clone());
-    let listener = tokio::net::TcpListener::bind(&listen)
-        .await
-        .map_err(|e| format!("can't listen on {listen}: {e}"))?;
+    let token = std::env::var("ALLOWANCE_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty());
+    // Anything wider than loopback (a container, another machine) must ask
+    // callers for a token: without one, whoever can reach the port can spend.
+    let loopback = listen.starts_with("127.")
+        || listen.starts_with("localhost:")
+        || listen.starts_with("[::1]");
+    if !loopback && token.is_none() {
+        return Err(format!("refusing to listen on {listen} without ALLOWANCE_TOKEN (set one, or listen on 127.0.0.1)"));
+    }
+    if token.as_ref().is_some_and(|t| t.len() < 24) {
+        return Err(
+            "ALLOWANCE_TOKEN is too short: use at least 24 characters (openssl rand -hex 24)"
+                .into(),
+        );
+    }
     eprintln!(
-        "allowance: MCP at http://{listen}/mcp | {} sats/payment, {} sats/day | {} host rule(s), unlisted hosts: {:?}",
+        "allowance: MCP at http://{listen}/mcp | {} sats/payment, {} sats/day | {} host rule(s), unlisted hosts: {:?} | token: {}",
         guard.policy.per_payment_sat,
         guard.policy.per_day_sat,
         guard.policy.host.len(),
-        guard.policy.unlisted_hosts
+        guard.policy.unlisted_hosts,
+        if token.is_some() { "required" } else { "off (loopback only)" }
     );
+    let app = Router::new()
+        .route("/mcp", post(mcp_post))
+        .with_state(Arc::new(App { guard, token }));
+    let listener = tokio::net::TcpListener::bind(&listen)
+        .await
+        .map_err(|e| format!("can't listen on {listen}: {e}"))?;
     axum::serve(listener, app).await.map_err(|e| e.to_string())
 }
 
@@ -74,6 +127,9 @@ async fn daemon() -> Result<(), String> {
 /// credentials, so it is safe for an agent host to launch.
 async fn shim() -> Result<(), String> {
     let url = env("ALLOWANCE_URL", "http://127.0.0.1:4020/mcp");
+    let token = std::env::var("ALLOWANCE_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty());
     let http = reqwest::Client::new();
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut out = tokio::io::stdout();
@@ -81,13 +137,14 @@ async fn shim() -> Result<(), String> {
         if line.trim().is_empty() {
             continue;
         }
-        let reply = match http
+        let mut req = http
             .post(&url)
             .header("Content-Type", "application/json")
-            .body(line.clone())
-            .send()
-            .await
-        {
+            .body(line.clone());
+        if let Some(t) = &token {
+            req = req.bearer_auth(t);
+        }
+        let reply = match req.send().await {
             Ok(r) if r.status() == StatusCode::ACCEPTED => continue,
             Ok(r) => r.text().await.unwrap_or_default(),
             Err(e) => {
@@ -122,5 +179,49 @@ async fn main() {
     if let Err(e) = result {
         eprintln!("allowance: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app(token: Option<&str>) -> App {
+        let ledger = std::env::temp_dir().join(format!(
+            "allowance-auth-{}-{}.jsonl",
+            std::process::id(),
+            token.is_some()
+        ));
+        App {
+            guard: guard::Guard {
+                policy: toml::from_str("per_payment_sat = 1\nper_day_sat = 1").unwrap(),
+                ledger: tokio::sync::Mutex::new(
+                    ledger::Ledger::open(ledger.to_str().unwrap()).unwrap(),
+                ),
+                wallet: Box::new(wallet::Unreachable),
+                http: reqwest::Client::new(),
+            },
+            token: token.map(str::to_string),
+        }
+    }
+
+    fn bearer(value: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("authorization", value.parse().unwrap());
+        h
+    }
+
+    #[test]
+    fn token_is_required_when_set() {
+        let a = app(Some("0123456789abcdef01234567"));
+        assert!(!authorized(&a, &HeaderMap::new()));
+        assert!(!authorized(&a, &bearer("Bearer wrong")));
+        assert!(!authorized(&a, &bearer("0123456789abcdef01234567")));
+        assert!(authorized(&a, &bearer("Bearer 0123456789abcdef01234567")));
+    }
+
+    #[test]
+    fn no_token_means_open_on_loopback() {
+        assert!(authorized(&app(None), &HeaderMap::new()));
     }
 }

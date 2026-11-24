@@ -1,0 +1,52 @@
+# The daemon in a locked-down container: the wallet's credentials and the
+# policy exist only inside it, and the agent's side reaches one port.
+#
+#   cp .env.example .env    # then fill it in
+#   docker compose up -d --build
+#   docker compose run --rm agent-side     # checks the boundary from outside
+#
+# This protects the wallet from an agent that cannot control Docker on this
+# machine. See "Running it isolated" in the README for what that means.
+
+name: allowance
+
+services:
+  allowance:
+    build: ../..
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - ALLOWANCE_TOKEN=${ALLOWANCE_TOKEN:?set ALLOWANCE_TOKEN in .env (openssl rand -hex 24)}
+      - LND_REST_URL=${LND_REST_URL:?set LND_REST_URL in .env}
+      - LND_MACAROON_PATH=/run/secrets/lnd_macaroon
+      - LND_TLS_CERT_PATH=/run/secrets/lnd_tls_cert
+    secrets: [lnd_macaroon, lnd_tls_cert]
+    volumes:
+      - ${ALLOWANCE_POLICY_FILE:-../policy.toml}:/etc/allowance/policy.toml:ro
+      - ledger:/data
+    ports:
+      # Loopback on the host: agents on this machine only.
+      - "127.0.0.1:4020:4020"
+
+  # Stands where an agent stands: same network, no secrets, no volumes.
+  agent-side:
+    image: alpine:3.20
+    profiles: [check]
+    depends_on: [allowance]
+    environment:
+      - ALLOWANCE_TOKEN=${ALLOWANCE_TOKEN}
+    volumes:
+      - ./isolation-check.sh:/isolation-check.sh:ro
+    entrypoint: ["sh", "/isolation-check.sh"]
+
+secrets:
+  lnd_macaroon:
+    file: ${LND_MACAROON_FILE:?set LND_MACAROON_FILE in .env}
+  lnd_tls_cert:
+    file: ${LND_TLS_CERT_FILE:?set LND_TLS_CERT_FILE in .env}
+
+volumes:
+  ledger:

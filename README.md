@@ -30,6 +30,7 @@ The agent never holds the wallet, the rules, or the proof of payment.
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
 - [Use it from Goose](#use-it-from-goose)
+- [Running it isolated](#running-it-isolated)
 - [Design principles](#design-principles)
 - [What works today](#what-works-today)
 - [Threat model](#threat-model)
@@ -157,6 +158,7 @@ LND_TLS_CERT_PATH=/path/to/tls.cert \
 | `ALLOWANCE_POLICY` | `policy.toml` | The owner's rules |
 | `ALLOWANCE_LEDGER` | `ledger.jsonl` | Where decisions are recorded |
 | `ALLOWANCE_LISTEN` | `127.0.0.1:4020` | Where the daemon listens |
+| `ALLOWANCE_TOKEN` | unset | If set, callers must send `Authorization: Bearer <token>`. Required to listen beyond loopback. |
 | `LND_REST_URL`, `LND_MACAROON_PATH`, `LND_TLS_CERT_PATH` | | The LND wallet |
 
 Without an agent, [`examples/demo.sh`](examples/demo.sh) plays the agent's part
@@ -202,6 +204,44 @@ that host. Over two Goose sessions on the same day:
 Goose reported the refusal to its user and did not try another route. Full
 walkthrough: [examples/goose.md](examples/goose.md).
 
+## Running it isolated
+
+Run as a plain process, the daemon's files sit next to the agent. An agent
+with a shell under the same OS user could read the wallet's macaroon directly
+and skip the guard. To make the boundary real, put the daemon somewhere the
+agent can't read: a container, another OS user, or another machine.
+
+[`examples/docker`](examples/docker) does the first:
+
+```bash
+cd examples/docker
+cp .env.example .env        # token, LND address, macaroon and cert paths
+docker compose up -d --build
+docker compose run --rm agent-side    # checks the boundary from outside
+```
+
+The container runs as a non-root user with a read-only filesystem, no Linux
+capabilities, and the macaroon mounted as a secret. The daemon refuses to
+listen beyond loopback without `ALLOWANCE_TOKEN`, and agents send that token
+(`allowance shim` reads it from its environment).
+
+`agent-side` stands where an agent stands, on the same network with no secrets
+mounted, and checks that:
+
+- the macaroon, TLS certificate, policy and ledger are not readable there;
+- the daemon refuses callers with no token or a wrong one;
+- the four tools are all there is, and no result carries a credential;
+- `file://` URLs and hosts the owner didn't list are refused without being
+  contacted.
+
+In our regtest run all checks passed, and the containerised daemon paid two
+chess moves and refused the third at the host's daily limit.
+
+**What a container does not fix.** Anyone who can run `docker` on the machine
+can read the container's secrets. If your agent has a shell under a user that
+controls Docker, use another OS user or another machine for the daemon. Keep
+`.env` and the macaroon file out of the agent's reach for the same reason.
+
 ## Design principles
 
 1. **The limit lives outside the agent.** Policy and credentials belong to a
@@ -232,7 +272,8 @@ walkthrough: [examples/goose.md](examples/goose.md).
 - Append-only ledger with proof of payment.
 - MCP over Streamable HTTP and a stdio shim. Checked with Goose 1.60.2 and the
   official MCP Python SDK client.
-- 15 tests, including eight concurrent calls against a budget for two.
+- Optional bearer token, and a hardened container setup with a boundary check.
+- 18 tests, including eight concurrent calls against a budget for two.
 
 Everything so far has run on regtest only.
 
@@ -242,15 +283,20 @@ Everything so far has run on regtest only.
 overspend, pay a host the owner didn't list, or obtain wallet credentials
 through its tools.
 
-**Not covered yet:**
+**Depends on how you run it:**
 
-- An agent with a shell, running as the same OS user as the daemon, can read
-  the daemon's files. Run the daemon as another user, in a container, or on
-  another machine.
-- The daemon has no authentication of its own. It listens on loopback only;
-  anything on the machine can ask it to pay, within the limits.
+- Run as a plain process under the agent's own OS user, an agent with a shell
+  can read the daemon's files. See [Running it isolated](#running-it-isolated).
+- Without `ALLOWANCE_TOKEN` the daemon listens on loopback only and anything
+  on the machine can ask it to pay, within the limits.
+
+**Not covered:**
+
 - It checks how much is paid and to which host, not whether the thing bought
   was worth it.
+- A listed host can still take the whole of its limit for nothing.
+- The token is a shared secret sent in clear over HTTP: fine on one machine,
+  not across a network without TLS in front.
 
 Give the wallet a macaroon that can only pay invoices. To report a security
 problem, see [SECURITY.md](SECURITY.md).
@@ -267,23 +313,33 @@ next depends on what people who run agents with money tell us. Candidates:
   refusal.
 - **Token reuse** for L402 tokens that are good for more than one request.
 - **Proxy a whole MCP server,** so its paid tools appear natively in the host.
-- **Isolation by default:** daemon authentication, a container image.
+- **Stronger isolation:** TLS or a Unix socket for the daemon, a published image.
 
 If you let an agent spend money today, we'd like to hear how you cap it and
 what went wrong: [open an issue](https://github.com/Rits1272/allowance/issues).
 
 ## Related work
 
-- [ngx-l402](https://github.com/ngx-l402/ngx-l402): an nginx module that puts a
-  Lightning paywall in front of any API or MCP server. It asks for payment;
-  `allowance` pays.
-- [L402sdk](https://github.com/lightninglabs/L402sdk) (Lightning Labs): an L402
-  client library with budget controls, wallet backends and AI-framework
-  bindings, used inside the agent's application. `allowance` is a separate
-  process that speaks MCP, and aims at several payment schemes.
-- Several MCP payment proxies with spending caps exist for
-  [x402](https://github.com/x402-foundation/x402) stablecoin payments.
-  `allowance` is the same idea for Lightning.
+Capping what an agent spends over Lightning is not a new idea. What exists,
+and where `allowance` differs:
+
+| | What it does | Where the limit lives |
+|---|---|---|
+| [NWC](https://nwc.dev) budgets (e.g. Alby Hub) | A wallet connection with a spending budget | In the wallet, outside the agent. One budget per connection: no per-host or per-payment rule, no record of what was bought. |
+| [Alby MCP](https://github.com/getAlby/mcp) | Gives an agent wallet tools over NWC, including `fetch_l402` | Whatever budget the NWC connection has |
+| [lnget](https://github.com/lightninglabs/lnget) | `wget` for L402, with `--max-cost` per request | A flag the caller passes, so the agent sets it |
+| [L402sdk](https://github.com/lightninglabs/L402sdk) | L402 client library with budget controls and AI-framework bindings | Inside the agent's application |
+| [SatGate](https://github.com/SatGate-io/satgate) | Gateway in front of APIs and MCP tools with owner budgets and paid admission | A gateway, aimed at teams operating agents and APIs |
+| x402 MCP proxies | Pay [x402](https://github.com/x402-foundation/x402) stablecoin challenges under caps | A local proxy; no Lightning |
+
+`allowance` is the small, self-hosted piece in the middle: per-host and
+per-day rules checked against the invoice, in a process the agent can't edit,
+with a ledger of every decision, usable from any MCP host. A pay-only macaroon
+or an NWC budget underneath it is still a good idea: the two stack.
+
+[ngx-l402](https://github.com/ngx-l402/ngx-l402) is the other side: an nginx
+module that puts a Lightning paywall in front of any API or MCP server. It asks
+for payment; `allowance` pays.
 
 ## Contributing
 

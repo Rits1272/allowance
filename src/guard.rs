@@ -87,6 +87,9 @@ impl Guard {
     /// Nothing is paid and nothing is reserved.
     pub async fn quote(&self, req: Request) -> Result<Value, String> {
         let host = Self::host(&req.url)?;
+        if let Err(reason) = self.policy.host_allowed(&host) {
+            return Ok(json!({ "host": host, "allowed": false, "reason": reason }));
+        }
         let first = self.send(&req, None).await?;
         if first.status != 402 {
             return Ok(json!({ "payment_required": false, "status": first.status }));
@@ -117,6 +120,12 @@ impl Guard {
     /// Fetches `req`, paying an L402 challenge if the policy allows it.
     pub async fn fetch(&self, req: Request) -> Result<Value, String> {
         let host = Self::host(&req.url)?;
+        if let Err(reason) = self.policy.host_allowed(&host) {
+            return Ok(
+                json!({ "status": 0, "paid": false, "paid_sat": 0, "reason": reason,
+                "note": "Not fetched. The wallet's owner decides which hosts can be reached." }),
+            );
+        }
         let first = self.send(&req, None).await?;
         if first.status != 402 {
             return Ok(json!({ "status": first.status, "paid_sat": 0, "body": first.body }));
@@ -363,6 +372,23 @@ mod tests {
         assert_eq!(out["paid"], false);
         assert!(out["reason"].as_str().unwrap().contains("not on the list"));
         assert_eq!(paid.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn never_contacts_an_unlisted_host() {
+        let (guard, _url, _paid) = setup(ALLOW_LOCAL).await;
+        // Nothing listens here: a connection attempt would be an error, not a refusal.
+        let out = guard
+            .fetch(get_req("http://unlisted.invalid:9/x"))
+            .await
+            .unwrap();
+        assert_eq!(out["paid"], false);
+        assert!(out["reason"].as_str().unwrap().contains("not on the list"));
+        let q = guard
+            .quote(get_req("http://unlisted.invalid:9/x"))
+            .await
+            .unwrap();
+        assert_eq!(q["allowed"], false);
     }
 
     #[tokio::test]

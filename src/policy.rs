@@ -67,15 +67,23 @@ impl Policy {
         })
     }
 
-    /// Whether a payment of `cost_msat` (fee cap included) to `host` may go
-    /// ahead. `Err` is the reason, in words the agent can pass to its human.
-    pub fn check(&self, host: &str, cost_msat: u64, spent: Spent) -> Result<(), String> {
-        let rule = self.rule(host);
-        if rule.is_none() && self.unlisted_hosts == Unlisted::Deny {
+    /// Whether the guard may talk to `host` at all. With unlisted hosts
+    /// denied, the guard won't even send a free request to one: an agent
+    /// can't use it to reach places the owner didn't list.
+    pub fn host_allowed(&self, host: &str) -> Result<(), String> {
+        if self.rule(host).is_none() && self.unlisted_hosts == Unlisted::Deny {
             return Err(format!(
                 "{host} is not on the list of hosts this wallet may pay"
             ));
         }
+        Ok(())
+    }
+
+    /// Whether a payment of `cost_msat` (fee cap included) to `host` may go
+    /// ahead. `Err` is the reason, in words the agent can pass to its human.
+    pub fn check(&self, host: &str, cost_msat: u64, spent: Spent) -> Result<(), String> {
+        self.host_allowed(host)?;
+        let rule = self.rule(host);
         let per_payment = rule
             .and_then(|r| r.per_payment_sat)
             .unwrap_or(self.per_payment_sat)

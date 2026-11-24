@@ -127,3 +127,21 @@ impl Wallet for LndRest {
         })
     }
 }
+
+/// A wallet that never pays. For tests that must not reach a wallet.
+#[cfg(test)]
+pub struct Unreachable;
+
+#[cfg(test)]
+#[async_trait]
+impl Wallet for Unreachable {
+    fn name(&self) -> &'static str {
+        "none"
+    }
+    async fn pay(&self, _invoice: &str, _max_fee_sat: u64) -> Result<Paid, PayError> {
+        Err(PayError {
+            definite: true,
+            message: "no wallet in this test".into(),
+        })
+    }
+}
