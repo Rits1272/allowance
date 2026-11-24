@@ -1,19 +1,45 @@
-# allowance
+<p align="center">
+  <img src="assets/banner.svg" alt="allowance: a wallet with limits for AI agents" width="820">
+</p>
 
-**A wallet with limits for AI agents.**
+<p align="center">
+  <a href="https://github.com/Rits1272/allowance/actions/workflows/ci.yml"><img src="https://github.com/Rits1272/allowance/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/status-prototype-orange.svg" alt="Status: prototype">
+  <img src="https://img.shields.io/badge/pays-L402%20over%20Lightning-f5a623.svg" alt="Pays L402 over Lightning">
+  <img src="https://img.shields.io/badge/speaks-MCP-555.svg" alt="Speaks MCP">
+</p>
 
 An agent asks `allowance` to fetch a paid API or call a paid MCP tool.
-`allowance` pays the Lightning invoice only if the owner's rules allow it. The
-agent never holds the wallet, the rules, or the proof of payment.
+`allowance` pays the Lightning invoice **only if the owner's rules allow it**.
+The agent never holds the wallet, the rules, or the proof of payment.
 
-> **Status: prototype.** It pays L402 challenges over Lightning from an LND
-> wallet and is tested on regtest. Don't point it at a wallet you can't afford
-> to lose. [What works today](#what-works-today) · [Roadmap](#roadmap)
+<p align="center">
+  <img src="assets/demo.svg" alt="Goose pays for one chess move through allowance, then is refused at the daily limit" width="820">
+</p>
+
+> **Status: prototype.** It pays L402 challenges from an LND wallet and has
+> only been run on regtest. Don't point it at a wallet you can't afford to
+> lose. See [what works today](#what-works-today) and the
+> [threat model](#threat-model).
+
+## Contents
+
+- [Why](#why)
+- [What we aim to achieve](#what-we-aim-to-achieve)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Use it from Goose](#use-it-from-goose)
+- [Design principles](#design-principles)
+- [What works today](#what-works-today)
+- [Threat model](#threat-model)
+- [Roadmap](#roadmap)
+- [Related work](#related-work)
 
 ## Why
 
 Paid APIs and MCP servers answer `402 Payment Required`. For an agent to use
-them, it needs money, and today that means one of two things:
+them it needs money, and today that means one of two things:
 
 - **Hand the agent a wallet credential.** It can then spend everything, and so
   can a prompt injection that takes it over.
@@ -26,15 +52,14 @@ give them an allowance: a fixed amount, for agreed things, with a record.
 ## What we aim to achieve
 
 1. **Any agent can pay any 402, safely.** One guard that speaks the payment
-   schemes agents meet (L402 today; x402 over Lightning, MPP and Cashu next),
-   so an agent doesn't need a wallet per scheme.
+   schemes agents meet: L402 today; x402 over Lightning, MPP and Cashu next.
+   An agent shouldn't need a wallet per scheme.
 2. **Limits the agent can't override.** Spending rules enforced in a separate
    process that a person controls, not in the agent.
 3. **Bitcoin as the agent's money.** Lightning and ecash settle in seconds,
    need no account or card, and work for a 21-sat API call.
 4. **Works with the agent you already use.** It is a plain MCP server, so an
-   MCP host needs no changes to use it. So far it is tested with the official
-   MCP SDK client; Goose and other hosts are next.
+   MCP host needs no changes to use it.
 
 ## How it works
 
@@ -62,6 +87,8 @@ sequenceDiagram
         G-->>A: not paid, and why
     end
 ```
+
+Two sides, one narrow door between them:
 
 ```
  agent's side                                   owner's side
@@ -109,6 +136,72 @@ per_day_sat = 100
 name = "*.example.com"
 ```
 
+## Quick start
+
+You need Rust and an LND node (regtest is fine).
+
+```bash
+git clone https://github.com/Rits1272/allowance && cd allowance
+cargo build --release
+
+ALLOWANCE_POLICY=examples/policy.toml \
+LND_REST_URL=https://127.0.0.1:8080 \
+LND_MACAROON_PATH=/path/to/pay-only.macaroon \
+LND_TLS_CERT_PATH=/path/to/tls.cert \
+./target/release/allowance daemon
+# allowance: MCP at http://127.0.0.1:4020/mcp | 50 sats/payment, 200 sats/day | ...
+```
+
+| Variable | Default | |
+|---|---|---|
+| `ALLOWANCE_POLICY` | `policy.toml` | The owner's rules |
+| `ALLOWANCE_LEDGER` | `ledger.jsonl` | Where decisions are recorded |
+| `ALLOWANCE_LISTEN` | `127.0.0.1:4020` | Where the daemon listens |
+| `LND_REST_URL`, `LND_MACAROON_PATH`, `LND_TLS_CERT_PATH` | | The LND wallet |
+
+Without an agent, [`examples/demo.sh`](examples/demo.sh) plays the agent's part
+with `curl`. `cargo test` runs the whole flow against a local paywall and a
+mock wallet, so it needs no Lightning node.
+
+## Use it from Goose
+
+[Goose](https://github.com/aaif-goose/goose) extensions are MCP servers, so
+nothing in Goose changes. Checked with Goose 1.60.2:
+
+```bash
+goose session --with-streamable-http-extension "http://127.0.0.1:4020/mcp"
+```
+
+or permanently, in `~/.config/goose/config.yaml`:
+
+```yaml
+extensions:
+  allowance:
+    name: allowance
+    type: streamable_http
+    uri: http://127.0.0.1:4020/mcp
+    enabled: true
+```
+
+For hosts that launch extensions as commands, use `allowance shim` (set
+`ALLOWANCE_URL` if the daemon isn't on the default address).
+
+**What happened when we tried it.** The setup: a local
+[chessforsats](https://chessforsats.in) stack on regtest, where paying 21 sats
+plays a chess move at once (charged by
+[ngx-l402](https://github.com/ngx-l402/ngx-l402)), and a 50-sat daily limit for
+that host. Goose was asked to play three moves:
+
+| Attempt | Outcome |
+|---|---|
+| 1st move | Paid 21 sats, move played |
+| 2nd move | Paid 21 sats, move played |
+| 3rd move | **Refused, nothing paid:** "today's 50-sat limit for localhost would be passed (42 sats already spent there)" |
+| 4th move (Goose retried) | **Refused** again, same reason |
+
+Goose reported the refusal to its user and did not try another route. Full
+walkthrough: [examples/goose.md](examples/goose.md).
+
 ## Design principles
 
 1. **The limit lives outside the agent.** Policy and credentials belong to a
@@ -127,63 +220,6 @@ name = "*.example.com"
 7. **One wallet, many schemes.** Each scheme is a different challenge and
    proof around the same check-reserve-pay-record flow.
 
-## Quick start
-
-```bash
-cargo build --release
-
-ALLOWANCE_POLICY=examples/policy.toml \
-LND_REST_URL=https://127.0.0.1:8080 \
-LND_MACAROON_PATH=/path/to/pay-only.macaroon \
-LND_TLS_CERT_PATH=/path/to/tls.cert \
-./target/release/allowance daemon
-# allowance: MCP at http://127.0.0.1:4020/mcp | 50 sats/payment, 200 sats/day | ...
-```
-
-Then point an MCP host at it.
-
-**Goose** (extensions are MCP servers, so nothing in Goose changes). This
-follows Goose's documented config for a Streamable HTTP extension, but has
-**not been tested inside Goose yet**:
-
-```yaml
-# ~/.config/goose/config.yaml
-extensions:
-  allowance:
-    name: allowance
-    type: streamable_http
-    uri: http://127.0.0.1:4020/mcp
-    enabled: true
-```
-
-or for one session: `goose session --with-streamable-http-extension "http://127.0.0.1:4020/mcp"`.
-
-**Hosts that launch extensions as commands:** use `allowance shim` (set
-`ALLOWANCE_URL` if the daemon isn't on the default address).
-
-| Variable | Default | |
-|---|---|---|
-| `ALLOWANCE_POLICY` | `policy.toml` | The owner's rules |
-| `ALLOWANCE_LEDGER` | `ledger.jsonl` | Where decisions are recorded |
-| `ALLOWANCE_LISTEN` | `127.0.0.1:4020` | Where the daemon listens |
-| `LND_REST_URL`, `LND_MACAROON_PATH`, `LND_TLS_CERT_PATH` | | The LND wallet |
-
-### A worked example
-
-[`examples/demo.sh`](examples/demo.sh) plays the agent against a local
-[chessforsats](https://chessforsats.in) stack, a chess game where paying 21
-sats plays a move at once, charged by
-[ngx-l402](https://github.com/ngx-l402/ngx-l402). With a 50-sat
-daily limit for the host:
-
-| The agent asks to | Outcome |
-|---|---|
-| quote a move | 21 sats, allowed. Nothing paid. |
-| play a move through the paid MCP tool `make_move` | paid 21 sats, move played |
-| play a move over plain HTTP | paid 21 sats, move played |
-| play a third move | **refused**: "today's 50-sat limit for localhost would be passed (42 sats already spent there)" |
-| quote a host that isn't listed | **refused**: "satboard.bar is not on the list of hosts this wallet may pay" |
-
 ## What works today
 
 - L402 over Lightning: plain HTTP, and `tools/call` on Streamable HTTP MCP
@@ -194,10 +230,11 @@ daily limit for the host:
 - Per-payment, per-day and per-host limits; host allowlist with `*.` wildcards.
 - Budget reservation under concurrency; fee-inclusive accounting.
 - Append-only ledger with proof of payment.
-- MCP over Streamable HTTP (checked with the official MCP Python SDK client)
-  and a stdio shim.
-- Tests that run the whole flow against a local paywall with a mock wallet
-  (`cargo test`), including eight concurrent calls against a budget for two.
+- MCP over Streamable HTTP and a stdio shim. Checked with Goose 1.60.2 and the
+  official MCP Python SDK client.
+- 15 tests, including eight concurrent calls against a budget for two.
+
+Everything so far has run on regtest only.
 
 ## Threat model
 
@@ -215,9 +252,13 @@ through its tools.
 - It checks how much is paid and to which host, not whether the thing bought
   was worth it.
 
-Give the wallet a macaroon that can only pay invoices.
+Give the wallet a macaroon that can only pay invoices. To report a security
+problem, see [SECURITY.md](SECURITY.md).
 
 ## Roadmap
+
+This is a prototype built to find out whether people want it. What gets built
+next depends on what people who run agents with money tell us. Candidates:
 
 - **More schemes:** x402 with the Lightning scheme, MPP over Lightning, Cashu
   ecash (payments that can't be linked to each other).
@@ -227,7 +268,9 @@ Give the wallet a macaroon that can only pay invoices.
 - **Token reuse** for L402 tokens that are good for more than one request.
 - **Proxy a whole MCP server,** so its paid tools appear natively in the host.
 - **Isolation by default:** daemon authentication, a container image.
-- **Agent hosts:** a tested Goose extension and setup guides for other hosts.
+
+If you let an agent spend money today, we'd like to hear how you cap it and
+what went wrong: [open an issue](https://github.com/Rits1272/allowance/issues).
 
 ## Related work
 
@@ -244,8 +287,7 @@ Give the wallet a macaroon that can only pay invoices.
 
 ## Contributing
 
-Issues and pull requests are welcome, especially from people who run agents
-with real money: what do you cap, and what went wrong?
+See [CONTRIBUTING.md](CONTRIBUTING.md). In short:
 
 ```bash
 cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test
@@ -253,4 +295,4 @@ cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test
 
 ## License
 
-MIT
+[MIT](LICENSE)

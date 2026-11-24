@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 546" role="img" aria-label="Goose paying for a chess move through allowance, then being refused at the daily limit">
+<rect width="1000" height="546" rx="14" fill="#0d1117"/>
+<rect width="1000" height="44" rx="14" fill="#161b22"/><rect y="30" width="1000" height="14" fill="#161b22"/>
+<circle cx="26" cy="22" r="7" fill="#ff5f57"/><circle cx="50" cy="22" r="7" fill="#febc2e"/><circle cx="74" cy="22" r="7" fill="#28c840"/>
+<text x="500" y="28" text-anchor="middle" font-family="ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif" font-size="15" fill="#8b949e">Goose 1.60.2 + allowance on regtest (abridged from a real session)</text>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19">
+<text x="28" y="84" fill="#8b949e" xml:space="preserve">$ goose run --with-streamable-http-extension http://127.0.0.1:4020/mcp -t "..."</text>
+<text x="28" y="114" fill="#c9d1d9" xml:space="preserve"></text>
+<text x="28" y="144" fill="#ffffff" xml:space="preserve">&gt; Play three chess moves at localhost:8404, paying with the allowance wallet.</text>
+<text x="28" y="174" fill="#c9d1d9" xml:space="preserve"></text>
+<text x="28" y="204" fill="#79c0ff" xml:space="preserve">─── pay_mcp_tool | allowance ───  make_move  Rxh7</text>
+<text x="28" y="234" fill="#56d364" xml:space="preserve">  paid 21 sats · receipt r-2 · "Played Rxh7 (move 4) in game 1"</text>
+<text x="28" y="264" fill="#c9d1d9" xml:space="preserve"></text>
+<text x="28" y="294" fill="#79c0ff" xml:space="preserve">─── pay_mcp_tool | allowance ───  make_move  Nc3</text>
+<text x="28" y="324" fill="#ff7b72" xml:space="preserve">  refused · nothing paid · receipt r-3</text>
+<text x="28" y="354" fill="#ff7b72" xml:space="preserve">  "today's 50-sat limit for localhost would be passed</text>
+<text x="28" y="384" fill="#ff7b72" xml:space="preserve">   (42 sats already spent there)"</text>
+<text x="28" y="414" fill="#c9d1d9" xml:space="preserve"></text>
+<text x="28" y="444" fill="#c9d1d9" xml:space="preserve">One of the three moves went through. The other two were refused because</text>
+<text x="28" y="474" fill="#c9d1d9" xml:space="preserve">they would pass the wallet's daily limit. I can't change that limit, so I</text>
+<text x="28" y="504" fill="#c9d1d9" xml:space="preserve">didn't try to get around it. The wallet's owner needs to raise it.</text>
+</g>
+</svg>

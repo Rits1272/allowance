@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" role="img" aria-label="allowance: a wallet with limits for AI agents">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12161c"/>
+      <stop offset="1" stop-color="#1b222b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="400" rx="24" fill="url(#bg)"/>
+  <g transform="translate(96 88) scale(0.875)">
+    <circle cx="128" cy="128" r="84" fill="none" stroke="#2a323d" stroke-width="18"/>
+    <circle cx="128" cy="128" r="84" fill="none" stroke="#f5a623" stroke-width="18" stroke-linecap="round"
+            stroke-dasharray="369.5 527.8" transform="rotate(-90 128 128)"/>
+    <rect x="24" y="119" width="40" height="18" rx="9" fill="#151a21"/>
+    <rect x="30" y="123" width="30" height="10" rx="5" fill="#ffffff"/>
+    <path d="M140 66 96 136h28l-10 54 46-72h-28z" fill="#ffffff"/>
+  </g>
+  <g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="372" y="178" font-size="92" font-weight="800" fill="#ffffff" letter-spacing="-2">allowance</text>
+    <text x="376" y="236" font-size="34" font-weight="500" fill="#c9d1d9">A wallet with limits for AI agents.</text>
+    <text x="376" y="290" font-size="24" fill="#8b949e">Pays HTTP 402 over Lightning, under rules the agent can't change.</text>
+  </g>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20">
+    <rect x="376" y="318" width="92" height="36" rx="18" fill="#f5a623"/>
+    <text x="422" y="343" text-anchor="middle" fill="#12161c" font-weight="700">L402</text>
+    <rect x="480" y="318" width="84" height="36" rx="18" fill="#2a323d"/>
+    <text x="522" y="343" text-anchor="middle" fill="#c9d1d9">MCP</text>
+    <rect x="576" y="318" width="92" height="36" rx="18" fill="#2a323d"/>
+    <text x="622" y="343" text-anchor="middle" fill="#c9d1d9">Rust</text>
+  </g>
+</svg>

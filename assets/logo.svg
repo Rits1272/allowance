@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="allowance">
+  <rect width="256" height="256" rx="56" fill="#12161c"/>
+  <!-- the allowance: a dial that only goes so far -->
+  <circle cx="128" cy="128" r="84" fill="none" stroke="#2a323d" stroke-width="18"/>
+  <circle cx="128" cy="128" r="84" fill="none" stroke="#f5a623" stroke-width="18" stroke-linecap="round"
+          stroke-dasharray="369.5 527.8" transform="rotate(-90 128 128)"/>
+  <!-- the limit -->
+  <rect x="24" y="119" width="40" height="18" rx="9" fill="#12161c"/>
+  <rect x="30" y="123" width="30" height="10" rx="5" fill="#ffffff"/>
+  <!-- the money -->
+  <path d="M140 66 96 136h28l-10 54 46-72h-28z" fill="#ffffff"/>
+</svg>
