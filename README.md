@@ -190,14 +190,14 @@ For hosts that launch extensions as commands, use `allowance shim` (set
 [chessforsats](https://chessforsats.in) stack on regtest, where paying 21 sats
 plays a chess move at once (charged by
 [ngx-l402](https://github.com/ngx-l402/ngx-l402)), and a 50-sat daily limit for
-that host. Goose was asked to play three moves:
+that host. Over two Goose sessions on the same day:
 
 | Attempt | Outcome |
 |---|---|
-| 1st move | Paid 21 sats, move played |
-| 2nd move | Paid 21 sats, move played |
-| 3rd move | **Refused, nothing paid:** "today's 50-sat limit for localhost would be passed (42 sats already spent there)" |
-| 4th move (Goose retried) | **Refused** again, same reason |
+| Session 1, one move | Paid 21 sats, move played |
+| Session 2, 1st of three moves | Paid 21 sats, move played |
+| Session 2, 2nd move | **Refused, nothing paid:** "today's 50-sat limit for localhost would be passed (42 sats already spent there)" |
+| Session 2, 3rd move | **Refused** again, same reason |
 
 Goose reported the refusal to its user and did not try another route. Full
 walkthrough: [examples/goose.md](examples/goose.md).
