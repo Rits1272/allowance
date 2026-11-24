@@ -1,0 +1,15 @@
+# The owner's rules. The agent can't read or change this file through the guard.
+
+per_payment_sat = 50      # the most one payment may cost, fee included
+per_day_sat     = 200     # the most all payments may cost per UTC day
+max_fee_sat     = 2       # routing fee the wallet may add to one payment
+unlisted_hosts  = "deny"  # only the hosts below can be paid
+
+[[host]]
+name = "localhost"        # the local chessforsats and satsboard test stacks
+per_day_sat = 50
+
+[[host]]
+name = "chessforsats.in"
+per_payment_sat = 25
+per_day_sat = 100
