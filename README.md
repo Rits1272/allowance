@@ -31,10 +31,10 @@ give them an allowance: a fixed amount, for agreed things, with a record.
 2. **Limits the agent can't override.** Spending rules enforced in a separate
    process that a person controls, not in the agent.
 3. **Bitcoin as the agent's money.** Lightning and ecash settle in seconds,
-   need no account or card, and work for a 21-sat API call. Agents should have
-   a wallet, not a corporate expense account.
-4. **Works with the agent you already use.** It is an MCP server, so Goose,
-   Claude Code, Cursor or any MCP host can use it without changes.
+   need no account or card, and work for a 21-sat API call.
+4. **Works with the agent you already use.** It is a plain MCP server, so an
+   MCP host needs no changes to use it. So far it is tested with the official
+   MCP SDK client; Goose and other hosts are next.
 
 ## How it works
 
@@ -142,17 +142,21 @@ LND_TLS_CERT_PATH=/path/to/tls.cert \
 
 Then point an MCP host at it.
 
-**Goose** (extensions are MCP servers, so nothing in Goose changes; not yet
-tested inside Goose):
+**Goose** (extensions are MCP servers, so nothing in Goose changes). This
+follows Goose's documented config for a Streamable HTTP extension, but has
+**not been tested inside Goose yet**:
 
 ```yaml
 # ~/.config/goose/config.yaml
 extensions:
   allowance:
+    name: allowance
     type: streamable_http
     uri: http://127.0.0.1:4020/mcp
     enabled: true
 ```
+
+or for one session: `goose session --with-streamable-http-extension "http://127.0.0.1:4020/mcp"`.
 
 **Hosts that launch extensions as commands:** use `allowance shim` (set
 `ALLOWANCE_URL` if the daemon isn't on the default address).
@@ -167,8 +171,9 @@ extensions:
 ### A worked example
 
 [`examples/demo.sh`](examples/demo.sh) plays the agent against a local
-[chessforsats](https://chessforsats.in) stack, a chess game where a move costs
-21 sats behind [ngx-l402](https://github.com/ngx-l402/ngx-l402). With a 50-sat
+[chessforsats](https://chessforsats.in) stack, a chess game where paying 21
+sats plays a move at once, charged by
+[ngx-l402](https://github.com/ngx-l402/ngx-l402). With a 50-sat
 daily limit for the host:
 
 | The agent asks to | Outcome |
@@ -182,12 +187,15 @@ daily limit for the host:
 ## What works today
 
 - L402 over Lightning: plain HTTP, and `tools/call` on Streamable HTTP MCP
-  servers that answer 402.
+  servers that answer 402. Paid MCP calls are sent as single stateless
+  requests and are tested only against servers behind ngx-l402; servers that
+  need a session aren't supported yet.
 - LND wallet over REST, with a fee cap per payment.
 - Per-payment, per-day and per-host limits; host allowlist with `*.` wildcards.
 - Budget reservation under concurrency; fee-inclusive accounting.
 - Append-only ledger with proof of payment.
-- MCP over Streamable HTTP and a stdio shim.
+- MCP over Streamable HTTP (checked with the official MCP Python SDK client)
+  and a stdio shim.
 - Tests that run the whole flow against a local paywall with a mock wallet
   (`cargo test`), including eight concurrent calls against a budget for two.
 
@@ -227,10 +235,12 @@ Give the wallet a macaroon that can only pay invoices.
   Lightning paywall in front of any API or MCP server. It asks for payment;
   `allowance` pays.
 - [L402sdk](https://github.com/lightninglabs/L402sdk) (Lightning Labs): an L402
-  client library with a budget inside the agent's process. `allowance` is a
-  separate process, aims at several schemes, and speaks MCP.
-- [x402](https://github.com/coinbase/x402) payment proxies with spending caps
-  exist for stablecoins. `allowance` is the same idea for Lightning.
+  client library with budget controls, wallet backends and AI-framework
+  bindings, used inside the agent's application. `allowance` is a separate
+  process that speaks MCP, and aims at several payment schemes.
+- Several MCP payment proxies with spending caps exist for
+  [x402](https://github.com/x402-foundation/x402) stablecoin payments.
+  `allowance` is the same idea for Lightning.
 
 ## Contributing
 
